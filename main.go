@@ -6,23 +6,21 @@ github.com/influxdata/telegraf
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/influxdata/telegraf/config"
 	_tls "github.com/influxdata/telegraf/plugins/common/tls"
 	"github.com/pion/dtls/v2"
-	log "github.com/sirupsen/logrus"
 	"go.opentelemetry.io/contrib/exporters/metric/cortex"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -37,53 +35,15 @@ func main() {
 }
 
 func HandleRequest(ctx context.Context) (string, error) {
-	initLogger()
-	log.Debugln("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
+	log.Printf("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
 	err := run()
 	if err != nil {
-		log.Error("Encountered an error: ", err.Error())
+		log.Printf("Encountered an error: %s", err.Error())
 		return "", err
 	}
 
 	return "Lambda finished", nil
 }
-
-func initLogger() {
-	log.SetOutput(os.Stdout)
-	logLevel := os.Getenv("LOG_LEVEL")
-	switch logLevel {
-	case "INFO":
-		log.SetLevel(log.InfoLevel)
-	case "DEBUG":
-		log.SetLevel(log.DebugLevel)
-	case "WARN":
-		log.SetLevel(log.WarnLevel)
-	case "ERROR":
-		fallthrough
-	default:
-		log.SetLevel(log.ErrorLevel)
-	}
-}
-
-const sampleConfig = `
-  ## List certificate sources
-  ## Prefix your entry with 'file://' if you intend to use relative paths
-  sources = ["tcp://example.org:443", "https://influxdata.com:443",
-            "udp://127.0.0.1:4433", "/etc/ssl/certs/ssl-cert-snakeoil.pem",
-            "/etc/mycerts/*.mydomain.org.pem", "file:///path/to/*.pem"]
-  ## Timeout for SSL connection
-  # timeout = "5s"
-  ## Pass a different name into the TLS request (Server Name Indication)
-  ##   example: server_name = "myhost.example.org"
-  # server_name = ""
-  ## Don't include root or intermediate certificates in output
-  # exclude_root_certs = false
-  ## Optional TLS Config
-  # tls_ca = "/etc/telegraf/ca.pem"
-  # tls_cert = "/etc/telegraf/cert.pem"
-  # tls_key = "/etc/telegraf/key.pem"
-`
-const description = "Reads metrics from a SSL certificate"
 
 // X509Cert holds the configuration of the plugin.
 type X509Cert struct {
@@ -100,16 +60,6 @@ type X509Cert struct {
 type X509CertMetrics struct {
 	Tags   map[string]string
 	Fields map[string]int64
-}
-
-// Description returns description of the plugin.
-func (c *X509Cert) Description() string {
-	return description
-}
-
-// SampleConfig returns configuration sample for the plugin.
-func (c *X509Cert) SampleConfig() string {
-	return sampleConfig
 }
 
 func (c *X509Cert) sourcesToURLs() error {
@@ -220,32 +170,6 @@ func (c *X509Cert) getCert(u *url.URL, timeout time.Duration) ([]*x509.Certifica
 		}
 
 		certs := conn.ConnectionState().PeerCertificates
-
-		return certs, nil
-	case "file":
-		content, err := os.ReadFile(u.Path)
-		if err != nil {
-			return nil, err
-		}
-		var certs []*x509.Certificate
-		for {
-			block, rest := pem.Decode(bytes.TrimSpace(content))
-			if block == nil {
-				return nil, fmt.Errorf("failed to parse certificate PEM")
-			}
-
-			if block.Type == "CERTIFICATE" {
-				cert, err := x509.ParseCertificate(block.Bytes)
-				if err != nil {
-					return nil, err
-				}
-				certs = append(certs, cert)
-			}
-			if len(rest) == 0 {
-				break
-			}
-			content = rest
-		}
 		return certs, nil
 	default:
 		return nil, fmt.Errorf("unsupported scheme '%s' in location %s", u.Scheme, u.String())
@@ -314,7 +238,7 @@ func (c *X509Cert) collectCertURLs() ([]*url.URL, error) {
 	for _, path := range c.globpaths {
 		files := path.Match()
 		if len(files) <= 0 {
-			log.Error("could not find file: {}", path)
+			log.Printf("could not find file: %p", path)
 			continue
 		}
 		for _, file := range files {
@@ -446,18 +370,12 @@ func run() error {
 		return err
 	}
 
-	err = cert.sourcesToURLs()
-	if err != nil {
-		return nil
-	}
-
 	var certMetrics []X509CertMetrics
 	err, certMetrics = cert.Gather()
 	if err != nil {
 		return err
 	}
-
-	log.Debugln("Extracting metrics from certificates")
+	log.Printf("Extracting metrics from certificates")
 	for _, certMetric := range certMetrics {
 		labels := make([]attribute.KeyValue, 0)
 		for key, value := range certMetric.Tags {
@@ -510,8 +428,8 @@ func run() error {
 	}
 
 	/* Time for the controller to send the data before the program ends */
-	time.Sleep(10 * time.Second)
-	log.Debugln("Metrics sent to logzio")
+	cont.Stop(ctx)
+	log.Printf("Metrics sent to logzio")
 	return nil
 }
 

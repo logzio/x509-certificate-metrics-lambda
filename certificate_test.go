@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/influxdata/telegraf/config"
 	_tls "github.com/influxdata/telegraf/plugins/common/tls"
-	log "github.com/sirupsen/logrus"
+	log "log"
 	"os"
 	"testing"
 	"time"
@@ -80,7 +80,7 @@ func TestCertificateStartEndDate(t *testing.T) {
 
 	if metrics != nil {
 		for key, value := range expectedTags {
-			log.Debugf("matching %v with %v", value, metrics[0].Fields[key])
+			log.Printf("matching %v with %v", value, metrics[0].Fields[key])
 			if value != metrics[0].Fields[key] {
 				t.Errorf("Unmatching fields for the certificate")
 			}
@@ -100,20 +100,14 @@ func GatherFromUrl(url []string) (error, []X509CertMetrics) {
 		globpaths:        nil,
 	}
 
-	log.Debugln("Initializing certificate struct")
+	log.Printf("Initializing certificate struct")
 	cert.Init()
-	log.Debugln("Gathering metrics")
+	log.Printf("Gathering metrics")
 	err, metrics := cert.Gather()
 	return err, metrics
 }
 
 func TestMain(m *testing.M) {
-	setup()
 	code := m.Run()
 	os.Exit(code)
-}
-
-func setup() {
-	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
 }
