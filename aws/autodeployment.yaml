@@ -1,10 +1,10 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: Extracts X509 certificate metrics from URL
 Parameters:
-  LogzioListener:
+  LogzioMetricsListener:
     Type: String
     Description: >-
-      The Logz.io listener URL for your region. (For more details, see the regions page: 
+      The Logz.io metrics listener URL for your region. (For more details, see the regions page: 
       https://docs.logz.io/user-guide/accounts/account-region.html)
     Default: 'https://listener.logz.io:8053'
     AllowedValues:
@@ -15,22 +15,12 @@ Parameters:
       - 'https://listener-nl.logz.io:8053'
       - 'https://listener-uk.logz.io:8053'
       - 'https://listener-wa.logz.io:8053'
-  LogLevel:
-    Type: String
-    Description: >-
-      The logger level for the lambda execution.
-    Default: 'ERROR'
-    AllowedValues:
-      - 'INFO'
-      - 'ERROR'
-      - 'WARN'
-      - 'DEBUG'
   LambdaName:
     Type: String
     Description: >-
       Name of the lambda function.
       Default: 'x509-Certificate-Metrics-Lambda'
-  LogzioToken:
+  LogzioMetricsToken:
     Type: String
     Description: >-
       Your Logz.io metrics token. (Can be retrieved from the Manage Token page.)
@@ -49,6 +39,70 @@ Parameters:
     Default: 300
     MinValue: 1
     MaxValue: 900
+  LogzioLogsListener:
+    Type: String
+    Description: >-
+      The Logz.io logs listener URL for your region. (For more details, see the regions page:
+      https://docs.logz.io/user-guide/accounts/account-region.html)
+    Default: 'https://listener.logz.io:8071'
+    AllowedValues:
+      - 'https://listener.logz.io:8071'
+      - 'https://listener-au.logz.io:8071'
+      - 'https://listener-ca.logz.io:8071'
+      - 'https://listener-eu.logz.io:8071'
+      - 'https://listener-nl.logz.io:8071'
+      - 'https://listener-uk.logz.io:8071'
+      - 'https://listener-wa.logz.io:8071'
+  LogzioLogsToken:
+    Type: String
+    Description: >-
+        Your Logz.io logs token (Can be retrieved from the Manage Token page).
+    MinLength: 1
+  LogsExtensionLogLevel:
+    Type: String
+    Description: >-
+        Log level of the extension.
+    Default: info
+    AllowedValues:
+      - debug
+      - info
+      - warn
+      - error
+      - fatal
+      - panic
+  EnableExtensionInnerLogs:
+    Type: String
+    Description: >-
+        Set to true if you wish the extension inner logs will be shipped to your Logz.io account.
+    Default: false
+    AllowedValues:
+      - false
+      - true
+  EnablePlatformLogs:
+    Type: String
+    Description: >-
+        The platform log captures runtime or execution environment errors.
+        Set to true if you wish the platform logs will be shipped to your Logz.io account.
+    Default: false
+    AllowedValues:
+      - false
+      - true
+  GrokPatters:
+    Type: String
+    Description: >-
+        Must be set with LogsFormat. Use this if you want to parse your logs into fields.
+        A minified JSON list that contains the field name and the regex that will match the field. (optional).
+  LogsFormat:
+    Type: String
+    Description: >-
+        Must be set with GrokPatters. Use this if you want to parse your logs into fields.
+        The format in which the logs will appear, in accordance to grok conventions. (optional).
+  LogsCustomFields:
+    Type: String
+    Description: >-
+        Include additional fields with every message sent,
+        formatted as fieldName1=fieldValue1;fieldName2=fieldValue2 (NO SPACES).
+        A custom key that clashes with a key from the log itself will be ignored. (optional).
   CloudWatchEventScheduleExpression:
     Type: String
     Description: >-
@@ -61,23 +115,32 @@ Resources:
   LambdaFunction:
     Type: 'AWS::Lambda::Function'
     Properties:
+      Layers:
+        - arn:aws:lambda:us-east-1:486140753397:layer:LogzioLambdaExtensionLogs:4
       Code:
         S3Bucket: logzio-aws-integrations-us-east-1
         S3Key: x509-certificate-metricts-auto-deployment/function.zip
       FunctionName: !Ref LambdaName
       Description: >-
         Lambda function for collecting x509 certificate metrics from a URL.
-      Handler: main
-      Runtime: go1.x
+      Handler: bootstrap
+      Runtime: provided.al2
       Role: !GetAtt IAMRole.Arn
       Timeout: !Ref LambdaTimeout
       ReservedConcurrentExecutions: 1
       Environment:
         Variables:
-          LOGZIO_LISTENER: !Ref LogzioListener
-          LOGZIO_METRICS_TOKEN: !Ref LogzioToken
+          LOGZIO_METRICS_LISTENER: !Ref LogzioMetricsListener
+          LOGZIO_METRICS_TOKEN: !Ref LogzioMetricsToken
           CERTIFICATE_URL: !Ref CertificateURL
-          LOG_LEVEL: !Ref LogLevel
+          LOGZIO_LISTENER: !Ref LogzioLogsListener
+          LOGZIO_LOGS_TOKEN: !Ref LogzioLogsToken
+          LOGS_EXT_LOG_LEVEL: !Ref LogsExtensionLogLevel
+          ENABLE_EXTENSION_LOGS: !Ref EnableExtensionInnerLogs
+          ENABLE_PLATFORM_LOGS: !Ref EnablePlatformLogs
+          GROK_PATTERNS: !Ref GrokPatters
+          LOGS_FORMAT: !Ref LogsFormat
+          CUSTOM_FIELDS: !Ref LogsCustomFields
   IAMRole:
     Type: 'AWS::IAM::Role'
     Properties:

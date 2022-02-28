@@ -45,7 +45,7 @@ func HandleRequest(ctx context.Context) (string, error) {
 	return "Lambda finished", nil
 }
 
-// X509Cert holds the configuration of the plugin.
+// X509Cert holds the configuration
 type X509Cert struct {
 	Sources          []string        `toml:"sources"`
 	Timeout          config.Duration `toml:"timeout"`
@@ -441,7 +441,7 @@ func handleErr(err error) {
 
 func createController() (*controller.Controller, error) {
 	config := cortex.Config{
-		Endpoint:      os.Getenv("LOGZIO_LISTENER"),
+		Endpoint:      os.Getenv("LOGZIO_METRICS_LISTENER"),
 		RemoteTimeout: 30 * time.Second,
 		PushInterval:  15 * time.Second,
 		BearerToken:   os.Getenv("LOGZIO_METRICS_TOKEN"),
