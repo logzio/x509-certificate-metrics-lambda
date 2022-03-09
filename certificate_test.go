@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/influxdata/telegraf/config"
 	_tls "github.com/influxdata/telegraf/plugins/common/tls"
-	log "log"
+	"log"
 	"os"
 	"testing"
 	"time"

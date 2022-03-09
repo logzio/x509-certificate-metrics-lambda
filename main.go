@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/influxdata/telegraf/config"
 	_tls "github.com/influxdata/telegraf/plugins/common/tls"
+	metricsExporter "github.com/logzio/go-metrics-sdk"
 	"github.com/pion/dtls/v2"
-	"go.opentelemetry.io/contrib/exporters/metric/cortex"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
@@ -36,7 +36,7 @@ func main() {
 
 func HandleRequest(ctx context.Context) (string, error) {
 	log.Printf("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
-	err := run()
+	err := run(ctx)
 	if err != nil {
 		log.Printf("Encountered an error: %s", err.Error())
 		return "", err
@@ -339,8 +339,8 @@ func (c *X509Cert) Init() error {
 	return nil
 }
 
-func run() error {
-	ctx := context.Background()
+func run(ctx context.Context) error {
+	//ctx := context.Background()
 	cont, err := createController()
 	if err != nil {
 		panic(fmt.Errorf("error creating controller: %v", err))
@@ -440,14 +440,14 @@ func handleErr(err error) {
 }
 
 func createController() (*controller.Controller, error) {
-	config := cortex.Config{
-		Endpoint:      os.Getenv("LOGZIO_METRICS_LISTENER"),
-		RemoteTimeout: 30 * time.Second,
-		PushInterval:  15 * time.Second,
-		BearerToken:   os.Getenv("LOGZIO_METRICS_TOKEN"),
+	config := metricsExporter.Config{
+		LogzioMetricsListener: os.Getenv("LOGZIO_METRICS_LISTENER"),
+		RemoteTimeout:         30 * time.Second,
+		PushInterval:          15 * time.Second,
+		LogzioMetricsToken:    os.Getenv("LOGZIO_METRICS_TOKEN"),
 	}
 
-	return cortex.InstallNewPipeline(config,
+	return metricsExporter.InstallNewPipeline(config,
 		controller.WithCollectPeriod(10*time.Second),
 		controller.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
