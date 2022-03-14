@@ -24,21 +24,24 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
 )
+
+var infoLogger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+var debugLogger = log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
+var errorLogger = log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 func main() {
 	lambda.Start(HandleRequest)
 }
 
 func HandleRequest(ctx context.Context) (string, error) {
-	log.Printf("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
+	infoLogger.Printf("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
 	err := run(ctx)
 	if err != nil {
-		log.Printf("Encountered an error: %s", err.Error())
+		errorLogger.Printf("Encountered an error: %s", err.Error())
 		return "", err
 	}
 
@@ -64,24 +67,11 @@ type X509CertMetrics struct {
 
 func (c *X509Cert) sourcesToURLs() error {
 	for _, source := range c.Sources {
-		if strings.HasPrefix(source, "file://") ||
-			strings.HasPrefix(source, "/") {
-			source = filepath.ToSlash(strings.TrimPrefix(source, "file://"))
-			g, err := Compile(source)
-			if err != nil {
-				return fmt.Errorf("could not compile glob %v: %v", source, err)
-			}
-			c.globpaths = append(c.globpaths, g)
-		} else {
-			if strings.Index(source, ":\\") == 1 {
-				source = "file://" + filepath.ToSlash(source)
-			}
-			u, err := url.Parse(source)
-			if err != nil {
-				return fmt.Errorf("failed to parse cert location - %s", err.Error())
-			}
-			c.locations = append(c.locations, u)
+		u, err := url.Parse(source)
+		if err != nil {
+			return fmt.Errorf("failed to parse cert location - %s", err.Error())
 		}
+		c.locations = append(c.locations, u)
 	}
 
 	return nil
@@ -232,38 +222,12 @@ func getTags(cert *x509.Certificate, location string) map[string]string {
 	return tags
 }
 
-func (c *X509Cert) collectCertURLs() ([]*url.URL, error) {
-	var urls []*url.URL
-
-	for _, path := range c.globpaths {
-		files := path.Match()
-		if len(files) <= 0 {
-			log.Printf("could not find file: %p", path)
-			continue
-		}
-		for _, file := range files {
-			file = "file://" + file
-			u, err := url.Parse(file)
-			if err != nil {
-				return urls, fmt.Errorf("failed to parse cert location - %s", err.Error())
-			}
-			urls = append(urls, u)
-		}
-	}
-
-	return urls, nil
-}
-
 // Gather adds metrics into the accumulator.
 func (c *X509Cert) Gather() (error, []X509CertMetrics) {
 	metrics := make([]X509CertMetrics, 0)
 	now := time.Now()
-	collectedUrls, err := c.collectCertURLs()
-	if err != nil {
-		return err, nil
-	}
 
-	for _, location := range append(c.locations, collectedUrls...) {
+	for _, location := range append(c.locations) {
 		certs, err := c.getCert(location, time.Duration(c.Timeout))
 		if err != nil {
 			return err, nil
@@ -340,15 +304,12 @@ func (c *X509Cert) Init() error {
 }
 
 func run(ctx context.Context) error {
-	//ctx := context.Background()
 	cont, err := createController()
 	if err != nil {
 		panic(fmt.Errorf("error creating controller: %v", err))
 	}
 
-	defer handleErr(cont.Stop(ctx))
 	meter := cont.Meter("x509_certificate_metrics")
-	err = cont.Start(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -375,7 +336,11 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Extracting metrics from certificates")
+
+	defer func() {
+		handleErr(cont.Stop(ctx))
+	}()
+	debugLogger.Printf("Extracting metrics from certificates")
 	for _, certMetric := range certMetrics {
 		labels := make([]attribute.KeyValue, 0)
 		for key, value := range certMetric.Tags {
@@ -428,8 +393,7 @@ func run(ctx context.Context) error {
 	}
 
 	/* Time for the controller to send the data before the program ends */
-	cont.Stop(ctx)
-	log.Printf("Metrics sent to logzio")
+	infoLogger.Printf("Metrics sent successfully to logzio")
 	return nil
 }
 
@@ -440,6 +404,7 @@ func handleErr(err error) {
 }
 
 func createController() (*controller.Controller, error) {
+	debugLogger.Printf("Creating controller")
 	config := metricsExporter.Config{
 		LogzioMetricsListener: os.Getenv("LOGZIO_METRICS_LISTENER"),
 		RemoteTimeout:         30 * time.Second,
