@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Extracts X509 certificate metrics from URL
+Parameters:
+  LogzioListener:
+    Type: String
+    Description: >-
+      The Logz.io metrics listener URL for your region. (For more details, see the regions page: 
+      https://docs.logz.io/user-guide/accounts/account-region.html)
+    Default: 'https://listener.logz.io'
+    AllowedValues:
+      - 'https://listener.logz.io'
+      - 'https://listener-au.logz.io'
+      - 'https://listener-ca.logz.io'
+      - 'https://listener-eu.logz.io'
+      - 'https://listener-nl.logz.io'
+      - 'https://listener-uk.logz.io'
+      - 'https://listener-wa.logz.io'
+  LambdaName:
+    Type: String
+    Description: >-
+      Name of the lambda function.
+      Default: 'x509-Certificate-Metrics-Lambda'
+  LogzioMetricsToken:
+    Type: String
+    Description: >-
+      Your Logz.io metrics token. (Can be retrieved from the Manage Token page.)
+    MinLength: 1
+  CertificateURL:
+    Type: String
+    Description: >-
+      The URL to collect the X509 certificate metrics from. i.e: https://app.logz.io:443
+    MinLength: 1
+  LambdaTimeout:
+    Type: Number
+    Description: >-
+      The amount of time that Lambda allows a function to run before stopping
+      it. Minimum value is 1 second and Maximum value is 900 seconds. We
+      recommend to start with 300 seconds (5 minutes).
+    Default: 300
+    MinValue: 1
+    MaxValue: 900
+  LogzioLogsToken:
+    Type: String
+    Description: >-
+        Your Logz.io logs token (Can be retrieved from the Manage Token page).
+    MinLength: 1
+  CloudWatchEventScheduleExpression:
+    Type: String
+    Description: >-
+      The scheduling expression that determines when and how often the Lambda
+      function runs. We recommend to start with 10 hour rate.
+    Default: cron(0,0 0/1 ? * * *)
+    MinLength: 1
+    MaxLength: 256
+Resources:
+  LambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Layers:
+        - arn:aws:lambda:us-east-1:486140753397:layer:LogzioLambdaExtensionLogs:4
+      Code:
+        S3Bucket: logzio-aws-integrations-us-east-1
+        S3Key: x509-certificate-metricts-auto-deployment/function.zip
+      FunctionName: !Ref LambdaName
+      Description: >-
+        Lambda function for collecting x509 certificate metrics from a URL.
+      Handler: bootstrap
+      Runtime: provided.al2
+      Role: !GetAtt IAMRole.Arn
+      Timeout: !Ref LambdaTimeout
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          LOGZIO_METRICS_LISTENER: !Join
+            - ''
+            - - !Ref LogzioListener
+              - ':8053'
+          LOGZIO_METRICS_TOKEN: !Ref LogzioMetricsToken
+          CERTIFICATE_URL: !Ref CertificateURL
+          LOGZIO_LISTENER: !Join
+            - ''
+            - - !Ref LogzioListener
+              - ':8071'
+          LOGZIO_LOGS_TOKEN: !Ref LogzioLogsToken
+          LOGS_EXT_LOG_LEVEL: 'info'
+          ENABLE_EXTENSION_LOGS: 'false'
+          ENABLE_PLATFORM_LOGS: 'false'
+          GROK_PATTERNS: ''
+          LOGS_FORMAT: ''
+          CUSTOM_FIELDS: ''
+  IAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Join
+        - ''
+        - - !Ref LambdaName
+          - '-IAMRole'
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: X509CertificateMetrics
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: '*'
+  EventRule:
+    Type: 'AWS::Events::Rule'
+    Properties:
+      Name: !Join
+        - ''
+        - - !Ref LambdaName
+          - '-EventRule'
+      ScheduleExpression: !Ref CloudWatchEventScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: X509CertificateMetricsLambda
+  LambdaPermission:
+    Type: 'AWS::Lambda::Permission'
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: 'lambda:InvokeFunction'
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventRule.Arn
