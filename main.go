@@ -10,6 +10,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log"
+	"net"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/aws/aws-lambda-go/cfn"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/influxdata/telegraf/config"
 	_tls "github.com/influxdata/telegraf/plugins/common/tls"
@@ -20,13 +28,6 @@ import (
 	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
-	"log"
-	"net"
-	"net/url"
-	"os"
-	"reflect"
-	"strings"
-	"time"
 )
 
 var infoLogger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
@@ -37,15 +38,34 @@ func main() {
 	lambda.Start(HandleRequest)
 }
 
-func HandleRequest(ctx context.Context) (string, error) {
+func HandleRequest(ctx context.Context, event cfn.Event) (string, error) {
 	infoLogger.Printf("Checking certificate metrics for URL: " + os.Getenv("CERTIFICATE_URL"))
-	err := run(ctx)
-	if err != nil {
-		errorLogger.Printf("Encountered an error: %s", err.Error())
-		return "", err
+
+	// If requestID is empty - the lambda call is not from a custom resource
+	if event.RequestID == "" {
+		err := run(ctx)
+		if err != nil {
+			errorLogger.Printf("Encountered an error: %s", err.Error())
+			return "Encountered an error, lambda finished unsuccessfully", err
+		}
+
+	} else {
+		// Custom resource invocation
+		lambda.Start(cfn.LambdaWrap(customResourceRun))
 	}
 
 	return "Lambda finished", nil
+}
+
+// Wrapper for first invocation from cloud formation custom resource
+func customResourceRun(ctx context.Context, event cfn.Event) (physicalResourceID string, data map[string]interface{}, err error) {
+	err = run(ctx)
+	if err != nil {
+		errorLogger.Printf("Encountered an error: %s", err.Error())
+		return
+	}
+
+	return
 }
 
 // X509Cert holds the configuration
@@ -265,7 +285,7 @@ func (c *X509Cert) Gather() (error, []X509CertMetrics) {
 			} else {
 				tags["verification"] = "invalid"
 				fields["verification_code"] = 1
-				fields["verification_error"] = reflect.ValueOf(err.Error()).Int()
+				tags["verification_error"] = err.Error()
 			}
 
 			metrics = append(metrics, X509CertMetrics{
@@ -340,6 +360,7 @@ func run(ctx context.Context) error {
 	defer func() {
 		handleErr(cont.Stop(ctx))
 	}()
+
 	debugLogger.Printf("Extracting metrics from certificates")
 	for _, certMetric := range certMetrics {
 		labels := make([]attribute.KeyValue, 0)

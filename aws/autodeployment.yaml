@@ -91,7 +91,10 @@ Resources:
   IAMRole:
     Type: 'AWS::IAM::Role'
     Properties:
-      RoleName: X509CertificateMetrics
+      RoleName: !Join
+        - ''
+        - - !Ref LambdaName
+          - '-IAMRole'
       AssumeRolePolicyDocument:
         Version: 2012-10-17
         Statement:
@@ -116,12 +119,16 @@ Resources:
   EventRule:
     Type: 'AWS::Events::Rule'
     Properties:
-      Name: X509CertificateMetrics
+      Name: !Join
+        - ''
+        - - !Ref LambdaName
+          - '-EventRule'
       ScheduleExpression: !Ref CloudWatchEventScheduleExpression
       State: ENABLED
       Targets:
         - Arn: !GetAtt LambdaFunction.Arn
           Id: X509CertificateMetricsLambda
+    DependsOn: Primerinvoke
   LambdaPermission:
     Type: 'AWS::Lambda::Permission'
     Properties:
@@ -129,3 +136,9 @@ Resources:
       Action: 'lambda:InvokeFunction'
       Principal: events.amazonaws.com
       SourceArn: !GetAtt EventRule.Arn
+  Primerinvoke:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: LambdaFunction
+    Version: "1.0"
+    Properties:
+      ServiceToken: !GetAtt LambdaFunction.Arn
